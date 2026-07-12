@@ -25,7 +25,8 @@ as `.js` / `.ds` / `.json`.
 
 ## Setup
 
-No keymaps are created for you — map the resolver yourself:
+No keymaps are created for you — map the resolver yourself, buffer-locally
+so it only runs in JavaScript buffers:
 
 ```lua
 -- lazy.nvim
@@ -33,15 +34,28 @@ No keymaps are created for you — map the resolver yourself:
   'ttak0422/sfcc.nvim',
   ft = 'javascript',
   config = function()
-    vim.keymap.set('n', 'gf', function()
-      require('sfcc').gf()
-    end, { desc = 'SFCC cartridge gf' })
+    vim.api.nvim_create_autocmd('FileType', {
+      pattern = 'javascript',
+      callback = function(ev)
+        vim.keymap.set('n', 'gf', function()
+          require('sfcc').gf()
+        end, { buffer = ev.buf, desc = 'SFCC cartridge gf' })
+      end,
+    })
   end,
 }
 ```
 
-Unresolved paths fall back to the builtin `gf`, so the mapping is safe
-outside SFCC projects too.
+or equivalently in `~/.config/nvim/after/ftplugin/javascript.lua`:
+
+```lua
+vim.keymap.set('n', 'gf', function()
+  require('sfcc').gf()
+end, { buffer = true, desc = 'SFCC cartridge gf' })
+```
+
+Unresolved paths fall back to the builtin `gf`, so the mapping is safe in
+plain (non-SFCC) JavaScript projects too.
 
 Cartridge discovery is cached per working directory; clear it with
 `:SfccReset` (e.g. after adding a cartridge).
