@@ -1,7 +1,12 @@
 -- sfcc.nvim: resolve SFCC cartridge require paths like require('*/cartridge/...')
 local M = {}
 
-local cache = {} -- cwd -> { roots = {dir,...} }
+local cache = {} -- project root -> { roots = {dir,...}, ordered = bool }
+
+-- project root = nearest ancestor with dw.json, else cwd
+local function project_root(file)
+  return vim.fs.root(file ~= '' and file or assert(vim.uv.cwd()), 'dw.json') or assert(vim.uv.cwd())
+end
 
 local function read_cartridges_path(cwd)
   local f = io.open(cwd .. '/dw.json')
@@ -36,15 +41,15 @@ local function walk(dir, acc)
 end
 
 -- cartridge roots = parents of directories literally named `cartridge`
-local function cartridge_roots(cwd)
-  local hit = cache[cwd]
+local function cartridge_roots(proj)
+  local hit = cache[proj]
   if hit then
-    return hit
+    return hit.roots, hit.ordered
   end
-  local roots = walk(cwd, {})
+  local roots = walk(proj, {})
 
   -- order by dw.json cartridgesPath ("app_custom:app_storefront_base") when present
-  local order = read_cartridges_path(cwd)
+  local order = read_cartridges_path(proj)
   if order then
     local rank = {}
     for i, name in ipairs(order) do
@@ -59,8 +64,8 @@ local function cartridge_roots(cwd)
       return ra < rb
     end)
   end
-  cache[cwd] = roots
-  return roots
+  cache[proj] = { roots = roots, ordered = order ~= nil }
+  return roots, order ~= nil
 end
 
 local function existing_file(base)
@@ -73,18 +78,19 @@ end
 
 --- Resolve a require spec to existing files, in cartridge-path order.
 ---@param spec string e.g. "*/cartridge/scripts/util" or "~/cartridge/models/cart"
----@param file string buffer file path (used for "~")
----@return string[]
+---@param file string buffer file path (used for "~" and to locate dw.json)
+---@return string[] found
+---@return boolean ordered true when dw.json cartridgesPath defined the order
 function M.resolve(spec, file)
   local rest = spec:match('^%*/(.+)') or spec:match('^~/(.+)')
   if not rest then
-    return {}
+    return {}, false
   end
-  local roots
+  local roots, ordered = nil, false
   if spec:sub(1, 1) == '~' then
     roots = { vim.fs.root(file, 'cartridge') }
   else
-    roots = cartridge_roots(vim.fn.getcwd())
+    roots, ordered = cartridge_roots(project_root(file))
   end
   local found = {}
   for _, root in ipairs(roots) do
@@ -93,7 +99,7 @@ function M.resolve(spec, file)
       table.insert(found, hit)
     end
   end
-  return found
+  return found, ordered
 end
 
 local function spec_under_cursor()
@@ -109,7 +115,10 @@ end
 --- gf replacement: jump to the cartridge file under cursor, fall back to builtin gf.
 function M.gf()
   local spec = spec_under_cursor()
-  local found = spec and M.resolve(spec, vim.api.nvim_buf_get_name(0)) or {}
+  local found, ordered = {}, false
+  if spec then
+    found, ordered = M.resolve(spec, vim.api.nvim_buf_get_name(0))
+  end
   if #found == 0 then
     if spec and spec:match('^dw/') then
       return vim.notify('sfcc.nvim: "' .. spec .. '" is a dw.* API module (no file)', vim.log.levels.INFO)
@@ -120,7 +129,9 @@ function M.gf()
     end
     return
   end
-  if #found == 1 then
+  -- dw.json cartridgesPath defines a priority order: first match wins,
+  -- exactly like Prophet / Business Manager. Ask only when order is unknown.
+  if #found == 1 or ordered then
     return vim.cmd.edit(found[1])
   end
   vim.ui.select(found, { prompt = 'SFCC cartridge file' }, function(choice)

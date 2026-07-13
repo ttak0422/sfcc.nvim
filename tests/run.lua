@@ -18,9 +18,17 @@ vim.opt.runtimepath:prepend(plugin_root)
 local sfcc = require('sfcc')
 
 -- '*' searches every cartridge, ordered by dw.json cartridgesPath
-local found = sfcc.resolve('*/cartridge/scripts/util', '')
+local found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
 assert(#found == 2, 'expected 2 hits, got ' .. #found)
 assert(found[1]:find('app_custom', 1, true), 'dw.json order not applied: ' .. found[1])
+assert(ordered, 'dw.json cartridgesPath must mark the result as ordered')
+
+-- project root is located from the file via dw.json, independent of cwd
+sfcc.reset()
+vim.fn.chdir(root .. '/cartridges')
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', root .. '/cartridges/app_custom/cartridge/scripts/util.js')
+assert(#found == 2 and ordered, 'resolution must not depend on cwd')
+vim.fn.chdir(root)
 
 -- extensionless .json resolution
 found = sfcc.resolve('*/cartridge/config/prefs.json', '')

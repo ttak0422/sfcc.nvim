@@ -13,15 +13,18 @@ var cart = require('~/cartridge/models/cart');    // resolved within the current
 
 `require('sfcc').gf()` resolves the string under the cursor:
 
-- `*/...` — searched across every cartridge in the workspace (parents of
-  `cartridge` directories); multiple hits are offered via `vim.ui.select`
+- `*/...` — searched across every cartridge in the project (parents of
+  `cartridge` directories). When `dw.json` defines `cartridgesPath`, the
+  first match in that order wins, exactly like Prophet / Business Manager;
+  only when the order is unknown are multiple hits offered via
+  `vim.ui.select`
 - `~/...` — resolved within the cartridge containing the current file
 - `dw/...` — notifies that this is a server API module (no local file)
 - anything else falls back to the builtin `gf`
 
-Candidates are ordered by `cartridgesPath` (`:` or `,` separated) from
-`dw.json` at the workspace root, when present. Omitted extensions are tried
-as `.js` / `.ds` / `.json`.
+The project root is the nearest ancestor of the current file containing
+`dw.json` (falling back to the cwd); discovery is anchored there and cached
+per project. Omitted extensions are tried as `.js` / `.ds` / `.json`.
 
 ## Setup
 
