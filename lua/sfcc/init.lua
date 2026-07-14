@@ -74,6 +74,27 @@ local function existing_file(base)
       return base .. ext
     end
   end
+  -- directory require, like Prophet: <dir>/main.js or package.json "main"
+  -- (no index.js convention upstream either)
+  if vim.fn.isdirectory(base) == 1 then
+    if vim.fn.filereadable(base .. '/main.js') == 1 then
+      return base .. '/main.js'
+    end
+    local f = io.open(base .. '/package.json')
+    if f then
+      local ok, json = pcall(vim.json.decode, f:read('*a'))
+      f:close()
+      if ok and type(json) == 'table' and type(json.main) == 'string' then
+        local main = base .. '/' .. json.main
+        if not main:match('%.js$') then
+          main = main .. '.js'
+        end
+        if vim.fn.filereadable(main) == 1 then
+          return main
+        end
+      end
+    end
+  end
 end
 
 --- Resolve a require spec to existing files, in cartridge-path order.

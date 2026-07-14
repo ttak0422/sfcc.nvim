@@ -40,6 +40,17 @@ touch('cartridges/app_storefront_base/cartridge/controllers/Home.js')
 found = sfcc.resolve('~/cartridge/scripts/util', buf)
 assert(#found == 1 and found[1]:find('app_storefront_base', 1, true))
 
+-- directory require: main.js, then package.json "main" (no index.js)
+touch('cartridges/app_custom/cartridge/scripts/lib/main.js')
+touch('cartridges/app_custom/cartridge/scripts/pkg/entry.js')
+vim.fn.writefile({ '{"main":"entry"}' }, root .. '/cartridges/app_custom/cartridge/scripts/pkg/package.json')
+touch('cartridges/app_custom/cartridge/scripts/idx/index.js')
+found = sfcc.resolve('*/cartridge/scripts/lib', '')
+assert(#found == 1 and found[1]:find('lib/main%.js$'), 'directory require via main.js failed')
+found = sfcc.resolve('*/cartridge/scripts/pkg', '')
+assert(#found == 1 and found[1]:find('pkg/entry%.js$'), 'directory require via package.json main failed')
+assert(#sfcc.resolve('*/cartridge/scripts/idx', '') == 0, 'index.js must not resolve (Prophet parity)')
+
 -- explicit cartridge reference resolves inside that cartridge only
 found = sfcc.resolve('app_storefront_base/cartridge/scripts/util', buf)
 assert(#found == 1 and found[1]:find('app_storefront_base', 1, true), 'explicit cartridge reference failed')
