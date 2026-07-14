@@ -19,6 +19,9 @@ var cart = require('~/cartridge/models/cart');    // resolved within the current
   only when the order is unknown are multiple hits offered via
   `vim.ui.select`
 - `~/...` — resolved within the cartridge containing the current file
+- `<cartridge_name>/...` — a first segment naming a known cartridge resolves
+  inside that cartridge. Gated on the project having a `dw.json`, so bare
+  module paths (`lodash/fp`) never trigger a scan in ordinary JS projects
 - `dw/...` — notifies that this is a server API module (no local file)
 - anything else falls back to the builtin `gf`
 

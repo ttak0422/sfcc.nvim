@@ -40,7 +40,20 @@ touch('cartridges/app_storefront_base/cartridge/controllers/Home.js')
 found = sfcc.resolve('~/cartridge/scripts/util', buf)
 assert(#found == 1 and found[1]:find('app_storefront_base', 1, true))
 
--- unknown prefixes are left to builtin gf
+-- explicit cartridge reference resolves inside that cartridge only
+found = sfcc.resolve('app_storefront_base/cartridge/scripts/util', buf)
+assert(#found == 1 and found[1]:find('app_storefront_base', 1, true), 'explicit cartridge reference failed')
+assert(#sfcc.resolve('no_such_cartridge/cartridge/scripts/util', buf) == 0)
+
+-- dw API modules, relative and absolute paths are left to builtin gf
 assert(#sfcc.resolve('dw/system/Site', '') == 0)
+assert(#sfcc.resolve('./cartridge/scripts/util', buf) == 0)
+assert(#sfcc.resolve('/etc/hosts', buf) == 0)
+
+-- outside a dw.json project, explicit references must not trigger a scan
+local plain = vim.fn.tempname()
+vim.fn.mkdir(plain .. '/lodash/fp', 'p')
+vim.fn.writefile({}, plain .. '/lodash/fp/get.js')
+assert(#sfcc.resolve('lodash/fp/get', plain .. '/index.js') == 0, 'bare module path must be ignored without dw.json')
 
 print('OK')

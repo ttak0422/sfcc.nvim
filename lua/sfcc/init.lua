@@ -3,9 +3,9 @@ local M = {}
 
 local cache = {} -- project root -> { roots = {dir,...}, ordered = bool }
 
--- project root = nearest ancestor with dw.json, else cwd
-local function project_root(file)
-  return vim.fs.root(file ~= '' and file or assert(vim.uv.cwd()), 'dw.json') or assert(vim.uv.cwd())
+-- nearest ancestor with dw.json, or nil
+local function dw_root(file)
+  return vim.fs.root(file ~= '' and file or assert(vim.uv.cwd()), 'dw.json')
 end
 
 local function read_cartridges_path(cwd)
@@ -77,20 +77,38 @@ local function existing_file(base)
 end
 
 --- Resolve a require spec to existing files, in cartridge-path order.
----@param spec string e.g. "*/cartridge/scripts/util" or "~/cartridge/models/cart"
+---@param spec string "*/cartridge/..." | "~/cartridge/..." | "<cartridge_name>/..."
 ---@param file string buffer file path (used for "~" and to locate dw.json)
 ---@return string[] found
 ---@return boolean ordered true when dw.json cartridgesPath defined the order
 function M.resolve(spec, file)
-  local rest = spec:match('^%*/(.+)') or spec:match('^~/(.+)')
-  if not rest then
-    return {}, false
-  end
   local roots, ordered = nil, false
-  if spec:sub(1, 1) == '~' then
+  local rest = spec:match('^%*/(.+)')
+  if rest then
+    roots, ordered = cartridge_roots(dw_root(file) or assert(vim.uv.cwd()))
+  elseif spec:match('^~/') then
+    rest = spec:match('^~/(.+)')
     roots = { vim.fs.root(file, 'cartridge') }
+  elseif spec:match('^[%w_%-]+/') and not spec:match('^dw/') then
+    -- explicit cartridge reference, e.g. require('app_storefront_base/...').
+    -- Gated on dw.json: bare module paths ('lodash/fp') are common in any JS
+    -- project and must not trigger a workspace scan.
+    local proj = dw_root(file)
+    if not proj then
+      return {}, false
+    end
+    local name
+    name, rest = spec:match('^([^/]+)/(.+)')
+    local all
+    all, ordered = cartridge_roots(proj)
+    roots = {}
+    for _, r in ipairs(all) do
+      if vim.fs.basename(r) == name then
+        table.insert(roots, r)
+      end
+    end
   else
-    roots, ordered = cartridge_roots(project_root(file))
+    return {}, false
   end
   local found = {}
   for _, root in ipairs(roots) do
