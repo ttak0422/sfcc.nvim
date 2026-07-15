@@ -8,6 +8,8 @@ local function dw_root(file)
   return vim.fs.root(file ~= '' and file or assert(vim.uv.cwd()), 'dw.json')
 end
 
+-- ordered cartridge names from dw.json: cartridgesPath, else the
+-- `cartridge` array (Prophet's own fallback order)
 local function read_cartridges_path(cwd)
   local f = io.open(cwd .. '/dw.json')
   if not f then
@@ -15,14 +17,21 @@ local function read_cartridges_path(cwd)
   end
   local ok, json = pcall(vim.json.decode, f:read('*a'))
   f:close()
-  if not ok then
+  if not ok or type(json) ~= 'table' then
     return nil
   end
   local raw = json.cartridgesPath or json.cartridgePath
-  if type(raw) ~= 'string' then
-    return nil
+  local parts = type(raw) == 'string' and vim.split(raw, '[:,]', { trimempty = true })
+    or type(json.cartridge) == 'table' and json.cartridge
+    or {}
+  local names = {}
+  for _, name in ipairs(parts) do
+    name = type(name) == 'string' and vim.trim(name) or ''
+    if name ~= '' then
+      table.insert(names, name)
+    end
   end
-  return vim.split(raw, '[:,]', { trimempty = true })
+  return #names > 0 and names or nil
 end
 
 -- walk the tree without descending into node_modules / dot-dirs
@@ -48,24 +57,31 @@ local function cartridge_roots(proj)
   end
   local roots = walk(proj, {})
 
-  -- order by dw.json cartridgesPath ("app_custom:app_storefront_base") when present
+  -- Prophet semantics: the dw.json cartridge list is both the order and the
+  -- whitelist — walk the declared names and pick matching roots; names with
+  -- no folder are skipped. Only when nothing matches do we degrade to the
+  -- unordered full list (Prophet would resolve nothing there).
   local order = read_cartridges_path(proj)
+  local ordered = false
   if order then
-    local rank = {}
-    for i, name in ipairs(order) do
-      rank[name] = i
+    local by_name = {}
+    for _, r in ipairs(roots) do
+      local name = vim.fs.basename(r)
+      by_name[name] = by_name[name] or {}
+      table.insert(by_name[name], r)
     end
-    table.sort(roots, function(a, b)
-      local ra = rank[vim.fs.basename(a)] or math.huge
-      local rb = rank[vim.fs.basename(b)] or math.huge
-      if ra == rb then
-        return a < b
+    local picked = {}
+    for _, name in ipairs(order) do
+      for _, r in ipairs(by_name[name] or {}) do
+        table.insert(picked, r)
       end
-      return ra < rb
-    end)
+    end
+    if #picked > 0 then
+      roots, ordered = picked, true
+    end
   end
-  cache[proj] = { roots = roots, ordered = order ~= nil }
-  return roots, order ~= nil
+  cache[proj] = { roots = roots, ordered = ordered }
+  return roots, ordered
 end
 
 local function existing_file(base)

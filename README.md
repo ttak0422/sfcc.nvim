@@ -13,11 +13,13 @@ var cart = require('~/cartridge/models/cart');    // resolved within the current
 
 `require('sfcc').gf()` resolves the string under the cursor:
 
-- `*/...` — searched across every cartridge in the project (parents of
-  `cartridge` directories). When `dw.json` defines `cartridgesPath`, the
-  first match in that order wins, exactly like Prophet / Business Manager;
-  only when the order is unknown are multiple hits offered via
-  `vim.ui.select`
+- `*/...` — resolved against the cartridge list from `dw.json`:
+  `cartridgesPath` (or the `cartridge` array as fallback) is both the
+  priority order and the whitelist, exactly like Prophet / Business
+  Manager — the first match in declared order wins. Names are
+  whitespace-trimmed. Without a usable list, every cartridge in the
+  project (parents of `cartridge` directories) is searched and multiple
+  hits are offered via `vim.ui.select`
 - `~/...` — resolved within the cartridge containing the current file
 - `<cartridge_name>/...` — a first segment naming a known cartridge resolves
   inside that cartridge. Gated on the project having a `dw.json`, so bare

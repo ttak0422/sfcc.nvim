@@ -61,6 +61,30 @@ assert(#sfcc.resolve('dw/system/Site', '') == 0)
 assert(#sfcc.resolve('./cartridge/scripts/util', buf) == 0)
 assert(#sfcc.resolve('/etc/hosts', buf) == 0)
 
+-- declared order must win even against alphabetical order, spaces and all
+vim.fn.writefile({ '{"cartridgesPath":"app_storefront_base : app_custom"}' }, root .. '/dw.json')
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
+assert(ordered and found[1]:find('app_storefront_base', 1, true), 'declared order must beat alphabetical order')
+
+-- the list is also a whitelist: unlisted cartridges are excluded (Prophet parity)
+vim.fn.writefile({ '{"cartridgesPath":"app_storefront_base"}' }, root .. '/dw.json')
+sfcc.reset()
+found = sfcc.resolve('*/cartridge/scripts/util', '')
+assert(#found == 1 and found[1]:find('app_storefront_base', 1, true), 'whitelist not applied')
+
+-- when no declared name exists on disk, degrade to the unordered full list
+vim.fn.writefile({ '{"cartridgesPath":"missing_a:missing_b"}' }, root .. '/dw.json')
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
+assert(#found == 2 and not ordered, 'must degrade to unordered when nothing matches')
+
+-- the `cartridge` array is the fallback order source, like Prophet
+vim.fn.writefile({ '{"cartridge":["app_storefront_base","app_custom"]}' }, root .. '/dw.json')
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
+assert(ordered and found[1]:find('app_storefront_base', 1, true), 'cartridge array fallback failed')
+
 -- outside a dw.json project, explicit references must not trigger a scan
 local plain = vim.fn.tempname()
 vim.fn.mkdir(plain .. '/lodash/fp', 'p')
