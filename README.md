@@ -27,9 +27,13 @@ var cart = require('~/cartridge/models/cart');    // resolved within the current
 - `dw/...` — notifies that this is a server API module (no local file)
 - anything else falls back to the builtin `gf`
 
-The project root is the nearest ancestor of the current file containing
-`dw.json` (falling back to the cwd); discovery is anchored there and cached
-per project. Omitted extensions are tried as `.js` / `.ds` / `.json`.
+The workspace root is the cwd when it contains a `dw.json`, else the
+nearest ancestor of the current file with one; failing both, the tree under
+the cwd is scanned and the shallowest `dw.json` found is used. Cartridge
+discovery is anchored there and cached per project. A cartridge name that
+exists at several paths (e.g. a git submodule checkout) maps to its
+shallowest folder only — one folder per name, like Prophet. Omitted
+extensions are tried as `.js` / `.ds` / `.json`.
 
 ## Setup
 

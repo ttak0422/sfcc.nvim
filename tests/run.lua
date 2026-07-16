@@ -85,9 +85,52 @@ sfcc.reset()
 found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
 assert(ordered and found[1]:find('app_storefront_base', 1, true), 'cartridge array fallback failed')
 
+-- a duplicated cartridge (e.g. a git submodule checkout) yields ONE
+-- candidate per declared name, and the shallowest copy wins
+touch('sub/sfra/cartridges/app_custom/cartridge/scripts/util.js')
+vim.fn.writefile({ '{"cartridgesPath":"app_custom:app_storefront_base"}' }, root .. '/dw.json')
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
+assert(ordered and #found == 2, 'duplicate cartridge must not duplicate candidates, got ' .. #found)
+assert(not found[1]:find('/sub/', 1, true), 'shallowest copy must win: ' .. found[1])
+
+-- a dw.json below the workspace root (not an ancestor of the sources) is
+-- still found by the scan
+local proj2 = vim.fn.tempname()
+local function touch2(rel)
+  local p = proj2 .. '/' .. rel
+  vim.fn.mkdir(vim.fs.dirname(p), 'p')
+  vim.fn.writefile({}, p)
+end
+touch2('cartridges/c_a/cartridge/scripts/x.js')
+touch2('cartridges/c_b/cartridge/scripts/x.js')
+touch2('conf/keep')
+vim.fn.writefile({ '{"cartridgesPath":"c_b:c_a"}' }, proj2 .. '/conf/dw.json')
+vim.fn.chdir(proj2)
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/x', proj2 .. '/cartridges/c_a/cartridge/scripts/x.js')
+assert(ordered and found[1]:find('c_b', 1, true), 'nested dw.json not honored')
+
+-- a submodule shipping its own dw.json must not shadow the workspace config
+local proj3 = vim.fn.tempname()
+local function touch3(rel)
+  local p = proj3 .. '/' .. rel
+  vim.fn.mkdir(vim.fs.dirname(p), 'p')
+  vim.fn.writefile({}, p)
+end
+touch3('cartridges/m_a/cartridge/scripts/y.js')
+touch3('sub/cartridges/m_b/cartridge/scripts/y.js')
+vim.fn.writefile({ '{"cartridgesPath":"m_b:m_a"}' }, proj3 .. '/dw.json')
+vim.fn.writefile({ '{"cartridgesPath":"m_b"}' }, proj3 .. '/sub/dw.json')
+vim.fn.chdir(proj3)
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/y', proj3 .. '/sub/cartridges/m_b/cartridge/scripts/y.js')
+assert(ordered and #found == 2 and found[1]:find('m_b', 1, true), 'workspace dw.json must win over the submodule one')
+
 -- outside a dw.json project, explicit references must not trigger a scan
 local plain = vim.fn.tempname()
 vim.fn.mkdir(plain .. '/lodash/fp', 'p')
+vim.fn.chdir(plain)
 vim.fn.writefile({}, plain .. '/lodash/fp/get.js')
 assert(#sfcc.resolve('lodash/fp/get', plain .. '/index.js') == 0, 'bare module path must be ignored without dw.json')
 

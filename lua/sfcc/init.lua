@@ -3,15 +3,25 @@ local M = {}
 
 local cache = {} -- project root -> { roots = {dir,...}, ordered = bool }
 
--- nearest ancestor with dw.json, or nil
-local function dw_root(file)
-  return vim.fs.root(file ~= '' and file or assert(vim.uv.cwd()), 'dw.json')
+-- quick project lookup without scanning: the workspace (cwd) when it has a
+-- dw.json, else the nearest ancestor of the file with one. The cwd wins so a
+-- submodule shipping its own dw.json cannot shadow the workspace config.
+local function project(file)
+  local cwd = assert(vim.uv.cwd())
+  if vim.fn.filereadable(cwd .. '/dw.json') == 1 then
+    return cwd, cwd .. '/dw.json'
+  end
+  local anc = vim.fs.root(file ~= '' and file or cwd, 'dw.json')
+  if anc then
+    return anc, anc .. '/dw.json'
+  end
+  return cwd, nil
 end
 
--- ordered cartridge names from dw.json: cartridgesPath, else the
+-- ordered cartridge names from a dw.json file: cartridgesPath, else the
 -- `cartridge` array (Prophet's own fallback order)
-local function read_cartridges_path(cwd)
-  local f = io.open(cwd .. '/dw.json')
+local function read_cartridges_path(dwfile)
+  local f = io.open(dwfile)
   if not f then
     return nil
   end
@@ -34,13 +44,16 @@ local function read_cartridges_path(cwd)
   return #names > 0 and names or nil
 end
 
--- walk the tree without descending into node_modules / dot-dirs
+-- walk the tree without descending into node_modules / dot-dirs, collecting
+-- cartridge roots and dw.json locations in one pass
 -- (vim.fs.find can filter matches but cannot prune traversal)
 local function walk(dir, acc)
   for name, kind in vim.fs.dir(dir) do
-    if kind == 'directory' and name:sub(1, 1) ~= '.' and name ~= 'node_modules' then
+    if kind == 'file' and name == 'dw.json' then
+      table.insert(acc.configs, dir .. '/dw.json')
+    elseif kind == 'directory' and name:sub(1, 1) ~= '.' and name ~= 'node_modules' then
       if name == 'cartridge' then
-        table.insert(acc, dir)
+        table.insert(acc.roots, dir)
       else
         walk(dir .. '/' .. name, acc)
       end
@@ -49,31 +62,48 @@ local function walk(dir, acc)
   return acc
 end
 
+local function shallow_first(a, b)
+  local _, da = a:gsub('/', '')
+  local _, db = b:gsub('/', '')
+  if da ~= db then
+    return da < db
+  end
+  return a < b
+end
+
 -- cartridge roots = parents of directories literally named `cartridge`
-local function cartridge_roots(proj)
+local function cartridge_roots(proj, config)
   local hit = cache[proj]
   if hit then
     return hit.roots, hit.ordered
   end
-  local roots = walk(proj, {})
+  local acc = walk(proj, { roots = {}, configs = {} })
+  -- deterministic, and first-per-name below prefers the shallowest copy
+  table.sort(acc.roots, shallow_first)
+  if not config then
+    table.sort(acc.configs, shallow_first)
+    config = acc.configs[1]
+  end
 
   -- Prophet semantics: the dw.json cartridge list is both the order and the
-  -- whitelist — walk the declared names and pick matching roots; names with
-  -- no folder are skipped. Only when nothing matches do we degrade to the
-  -- unordered full list (Prophet would resolve nothing there).
-  local order = read_cartridges_path(proj)
-  local ordered = false
+  -- whitelist — walk the declared names, one folder per name (a duplicated
+  -- checkout, e.g. a git submodule, must not yield duplicate candidates);
+  -- names with no folder are skipped. Only when nothing matches do we
+  -- degrade to the unordered full list (Prophet would resolve nothing).
+  local order = config and read_cartridges_path(config)
+  local roots, ordered = acc.roots, false
   if order then
     local by_name = {}
     for _, r in ipairs(roots) do
       local name = vim.fs.basename(r)
-      by_name[name] = by_name[name] or {}
-      table.insert(by_name[name], r)
+      if not by_name[name] then
+        by_name[name] = r
+      end
     end
     local picked = {}
     for _, name in ipairs(order) do
-      for _, r in ipairs(by_name[name] or {}) do
-        table.insert(picked, r)
+      if by_name[name] then
+        table.insert(picked, by_name[name])
       end
     end
     if #picked > 0 then
@@ -122,22 +152,23 @@ function M.resolve(spec, file)
   local roots, ordered = nil, false
   local rest = spec:match('^%*/(.+)')
   if rest then
-    roots, ordered = cartridge_roots(dw_root(file) or assert(vim.uv.cwd()))
+    local proj, config = project(file)
+    roots, ordered = cartridge_roots(proj, config)
   elseif spec:match('^~/') then
     rest = spec:match('^~/(.+)')
     roots = { vim.fs.root(file, 'cartridge') }
   elseif spec:match('^[%w_%-]+/') and not spec:match('^dw/') then
     -- explicit cartridge reference, e.g. require('app_storefront_base/...').
-    -- Gated on dw.json: bare module paths ('lodash/fp') are common in any JS
-    -- project and must not trigger a workspace scan.
-    local proj = dw_root(file)
-    if not proj then
+    -- Gated on a quickly-findable dw.json: bare module paths ('lodash/fp')
+    -- are common in any JS project and must not trigger a workspace scan.
+    local proj, config = project(file)
+    if not config then
       return {}, false
     end
     local name
     name, rest = spec:match('^([^/]+)/(.+)')
     local all
-    all, ordered = cartridge_roots(proj)
+    all, ordered = cartridge_roots(proj, config)
     roots = {}
     for _, r in ipairs(all) do
       if vim.fs.basename(r) == name then
