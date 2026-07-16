@@ -134,4 +134,11 @@ vim.fn.chdir(plain)
 vim.fn.writefile({}, plain .. '/lodash/fp/get.js')
 assert(#sfcc.resolve('lodash/fp/get', plain .. '/index.js') == 0, 'bare module path must be ignored without dw.json')
 
+-- health snapshot (compare realpaths: on macOS tempname goes through /var -> /private/var)
+vim.fn.chdir(root)
+local real = assert(vim.uv.fs_realpath(root))
+local info = sfcc.info()
+assert(info.workspace == real and info.config == real .. '/dw.json', 'info() picked the wrong project')
+assert(#info.roots >= 2 and info.order ~= nil, 'info() snapshot incomplete')
+
 print('OK')

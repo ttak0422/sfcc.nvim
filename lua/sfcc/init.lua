@@ -232,4 +232,22 @@ function M.reset()
   cache = {}
 end
 
+--- Uncached discovery snapshot for :checkhealth sfcc.
+---@return { workspace: string, config: string?, order: string[]?, roots: string[] }
+function M.info()
+  local proj, config = project(vim.api.nvim_buf_get_name(0))
+  local acc = walk(proj, { roots = {}, configs = {} })
+  table.sort(acc.roots, shallow_first)
+  if not config then
+    table.sort(acc.configs, shallow_first)
+    config = acc.configs[1]
+  end
+  return {
+    workspace = proj,
+    config = config,
+    order = config and read_cartridges_path(config) or nil,
+    roots = acc.roots,
+  }
+end
+
 return M
