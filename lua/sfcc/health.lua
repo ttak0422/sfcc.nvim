@@ -6,6 +6,9 @@ function M.check()
   local info = require('sfcc').info()
 
   h.info('workspace root: ' .. info.workspace)
+  if info.modules then
+    h.info('modules folder (bare requires resolve here): ' .. info.modules)
+  end
 
   if not info.config then
     h.warn('no dw.json found — resolution is unordered, multiple hits go through vim.ui.select')

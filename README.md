@@ -7,40 +7,34 @@ paths in Neovim — the path-resolution part of VSCode's
 ```js
 var util = require('*/cartridge/scripts/util');   // searched across all cartridges
 var cart = require('~/cartridge/models/cart');    // resolved within the current cartridge
+var server = require('server');                   // the workspace modules/ folder
 ```
 
 ## Features
 
-`require('sfcc').gf()` resolves the string under the cursor:
+`require('sfcc').gf()` resolves the string under the cursor. Cartridges are
+discovered from the workspace and ordered by `cartridgesPath` in `dw.json` —
+the first match in declared order wins:
 
-- `*/...` — resolved against the cartridge list from `dw.json`:
-  `cartridgesPath` (or the `cartridge` array as fallback) is both the
-  priority order and the whitelist, exactly like Prophet / Business
-  Manager — the first match in declared order wins. Names are
-  whitespace-trimmed. Without a usable list, every cartridge in the
-  project (parents of `cartridge` directories) is searched and multiple
-  hits are offered via `vim.ui.select`
-- `~/...` — resolved within the cartridge containing the current file
-- `<cartridge_name>/...` — a first segment naming a known cartridge resolves
-  inside that cartridge. Gated on the project having a `dw.json`, so bare
-  module paths (`lodash/fp`) never trigger a scan in ordinary JS projects
-- `dw/...` — notifies that this is a server API module (no local file)
+- `*/...` — searched across the cartridge path
+- `~/...` — the cartridge containing the current file
+- `./...` / `../...` — relative to the buffer's directory
+- `<cartridge_name>/...` — inside that cartridge
+- bare paths (`server`) — the workspace `modules` folder
+- `dw/...` — server API module, no local file
+- cursor on `module.superModule` — the same file in the next cartridge down
+  the order
 - anything else falls back to the builtin `gf`
 
-The workspace root is the cwd when it contains a `dw.json`, else the
-nearest ancestor of the current file with one; failing both, the tree under
-the cwd is scanned and the shallowest `dw.json` found is used. Cartridge
-discovery is anchored there and cached per project. A cartridge name that
-exists at several paths (e.g. a git submodule checkout) maps to its
-shallowest folder only — one folder per name, like Prophet. Omitted
-extensions are tried as `.js` / `.ds` / `.json`.
+Omitted extensions are tried as `.js` / `.ds` / `.json` / `.ts` / `.d.ts`;
+a directory resolves via `main.js` or `package.json` `"main"`.
+`:checkhealth sfcc` shows what was detected.
 
 ## Setup
 
-No keymaps are created for you — map the resolver yourself. A global
-mapping is fine: unless the string under the cursor starts with `*/` or
-`~/`, the resolver bails out to the builtin `gf` immediately without
-touching the filesystem.
+No keymaps are created — map the resolver yourself. A global mapping is
+fine: outside a `dw.json` project it falls straight through to the
+builtin `gf`.
 
 ```lua
 -- lazy.nvim: the plugin is loaded on the first gf press
@@ -50,15 +44,6 @@ touching the filesystem.
     { 'gf', function() require('sfcc').gf() end, desc = 'SFCC cartridge gf' },
   },
 }
-```
-
-If you'd rather scope it to JavaScript buffers only, map it in
-`~/.config/nvim/after/ftplugin/javascript.lua` instead:
-
-```lua
-vim.keymap.set('n', 'gf', function()
-  require('sfcc').gf()
-end, { buffer = true, desc = 'SFCC cartridge gf' })
 ```
 
 Cartridge discovery is cached per working directory; clear it with

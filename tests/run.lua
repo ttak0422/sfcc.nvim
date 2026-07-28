@@ -51,15 +51,53 @@ found = sfcc.resolve('*/cartridge/scripts/pkg', '')
 assert(#found == 1 and found[1]:find('pkg/entry%.js$'), 'directory require via package.json main failed')
 assert(#sfcc.resolve('*/cartridge/scripts/idx', '') == 0, 'index.js must not resolve (Prophet parity)')
 
+-- package.json "main" gets the same extension attempts as plain paths
+touch('cartridges/app_custom/cartridge/scripts/pkg2/entry2.ts')
+vim.fn.writefile({ '{"main":"entry2"}' }, root .. '/cartridges/app_custom/cartridge/scripts/pkg2/package.json')
+found = sfcc.resolve('*/cartridge/scripts/pkg2', '')
+assert(#found == 1 and found[1]:find('entry2%.ts$'), 'package.json main with .ts source failed')
+
+-- a module that exists only as typings resolves too (Prophet parity)
+touch('cartridges/app_custom/cartridge/scripts/types.d.ts')
+found = sfcc.resolve('*/cartridge/scripts/types', '')
+assert(#found == 1 and found[1]:find('types%.d%.ts$'), '.d.ts-only resolution failed')
+
 -- explicit cartridge reference resolves inside that cartridge only
 found = sfcc.resolve('app_storefront_base/cartridge/scripts/util', buf)
 assert(#found == 1 and found[1]:find('app_storefront_base', 1, true), 'explicit cartridge reference failed')
 assert(#sfcc.resolve('no_such_cartridge/cartridge/scripts/util', buf) == 0)
 
--- dw API modules, relative and absolute paths are left to builtin gf
+-- dw API modules resolve to nothing; a relative path that does not exist and
+-- an absolute path naming no cartridge also yield nothing (builtin gf fallback)
 assert(#sfcc.resolve('dw/system/Site', '') == 0)
 assert(#sfcc.resolve('./cartridge/scripts/util', buf) == 0)
 assert(#sfcc.resolve('/etc/hosts', buf) == 0)
+
+-- junk strings (sentences, URLs) bail without touching the filesystem
+assert(#sfcc.resolve('hello world', '') == 0)
+assert(#sfcc.resolve('https://example.com/a', '') == 0)
+
+-- relative requires resolve against the buffer's directory, extensions added
+touch('cartridges/app_storefront_base/cartridge/controllers/helpers.js')
+found = sfcc.resolve('./helpers', buf)
+assert(#found == 1 and found[1]:find('controllers/helpers%.js$'), 'relative require failed')
+found = sfcc.resolve('../scripts/util', buf)
+assert(#found == 1 and found[1]:find('scripts/util%.js$'), 'parent-relative require failed')
+
+-- non-script buffers never resolve relative specs: a global gf mapping must
+-- not shadow filetype-aware builtin gf (scss @import './variables' etc.)
+touch('cartridges/app_storefront_base/cartridge/static/default/css/variables.json')
+local scss = root .. '/cartridges/app_storefront_base/cartridge/static/default/css/main.scss'
+assert(#sfcc.resolve('./variables', scss) == 0, 'relative resolution must not fire in non-script buffers')
+
+-- one leading slash is accepted on any form (Prophet parity)
+found = sfcc.resolve('/app_storefront_base/cartridge/scripts/util', buf)
+assert(#found == 1 and found[1]:find('app_storefront_base', 1, true), 'leading slash failed')
+
+-- omitted .ts extension resolves too
+touch('cartridges/app_custom/cartridge/scripts/tsmod.ts')
+found = sfcc.resolve('*/cartridge/scripts/tsmod', '')
+assert(#found == 1 and found[1]:find('tsmod%.ts$'), '.ts resolution failed')
 
 -- declared order must win even against alphabetical order, spaces and all
 vim.fn.writefile({ '{"cartridgesPath":"app_storefront_base : app_custom"}' }, root .. '/dw.json')
@@ -94,6 +132,14 @@ found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
 assert(ordered and #found == 2, 'duplicate cartridge must not duplicate candidates, got ' .. #found)
 assert(not found[1]:find('/sub/', 1, true), 'shallowest copy must win: ' .. found[1])
 
+-- dedup applies in degraded (unordered) mode too: the same-name duplicate is
+-- decided by priority (shallowest), so gf never offers both copies
+vim.fn.writefile({ '{"cartridgesPath":"missing_only"}' }, root .. '/dw.json')
+sfcc.reset()
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', '')
+assert(not ordered and #found == 2, 'degraded mode must dedup by name, got ' .. #found)
+assert(not (found[1] .. found[2]):find('/sub/', 1, true), 'shallowest copy must win unordered too')
+
 -- a dw.json below the workspace root (not an ancestor of the sources) is
 -- still found by the scan
 local proj2 = vim.fn.tempname()
@@ -110,6 +156,11 @@ vim.fn.chdir(proj2)
 sfcc.reset()
 found, ordered = sfcc.resolve('*/cartridge/scripts/x', proj2 .. '/cartridges/c_a/cartridge/scripts/x.js')
 assert(ordered and found[1]:find('c_b', 1, true), 'nested dw.json not honored')
+
+-- once the project is discovered (cache warm), explicit cartridge references
+-- work here too, even though dw.json is not an ancestor of the sources
+found = sfcc.resolve('c_b/cartridge/scripts/x', proj2 .. '/cartridges/c_a/cartridge/scripts/x.js')
+assert(#found == 1 and found[1]:find('c_b', 1, true), 'warm-cache explicit reference failed')
 
 -- a submodule shipping its own dw.json must not shadow the workspace config
 local proj3 = vim.fn.tempname()
@@ -133,6 +184,7 @@ vim.fn.mkdir(plain .. '/lodash/fp', 'p')
 vim.fn.chdir(plain)
 vim.fn.writefile({}, plain .. '/lodash/fp/get.js')
 assert(#sfcc.resolve('lodash/fp/get', plain .. '/index.js') == 0, 'bare module path must be ignored without dw.json')
+assert(#sfcc.resolve('./fp/get', plain .. '/lodash/index.js') == 0, 'relative spec must be ignored without dw.json')
 
 -- health snapshot (compare realpaths: on macOS tempname goes through /var -> /private/var)
 vim.fn.chdir(root)
@@ -140,5 +192,27 @@ local real = assert(vim.uv.fs_realpath(root))
 local info = sfcc.info()
 assert(info.workspace == real and info.config == real .. '/dw.json', 'info() picked the wrong project')
 assert(#info.roots >= 2 and info.order ~= nil, 'info() snapshot incomplete')
+
+-- workspace `modules` folder: bare paths resolve into it (Prophet 1.4.x);
+-- directory requires go through package.json "main" there too
+touch('modules/server/server.js')
+vim.fn.writefile({ '{"main":"server.js"}' }, root .. '/modules/server/package.json')
+vim.fn.writefile({ '{"cartridgesPath":"app_custom:app_storefront_base"}' }, root .. '/dw.json')
+sfcc.reset()
+found = sfcc.resolve('server/server', '')
+assert(#found == 1 and found[1]:find('modules/server/server%.js$'), 'modules bare path failed')
+found = sfcc.resolve('server', '')
+assert(#found == 1 and found[1]:find('modules/server/server%.js$'), 'modules directory require failed')
+assert(sfcc.info().modules ~= nil, 'info() must expose the modules folder')
+
+-- module.superModule: same relative path in the next cartridge down the order
+found = sfcc.super(root .. '/cartridges/app_custom/cartridge/scripts/util.js')
+assert(#found == 1 and found[1]:find('app_storefront_base', 1, true), 'superModule failed')
+assert(#sfcc.super(root .. '/cartridges/app_storefront_base/cartridge/scripts/util.js') == 0, 'last cartridge must have no superModule')
+
+-- superModule needs a declared order: "next" is meaningless without one
+vim.fn.writefile({ '{"hostname":"x"}' }, root .. '/dw.json')
+sfcc.reset()
+assert(#sfcc.super(root .. '/cartridges/app_custom/cartridge/scripts/util.js') == 0, 'superModule without order must not guess')
 
 print('OK')
