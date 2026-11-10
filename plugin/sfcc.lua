@@ -5,4 +5,4 @@ vim.g.loaded_sfcc = true
 
 vim.api.nvim_create_user_command('SfccReset', function()
   require('sfcc').reset()
-end, { desc = 'Reset sfcc.nvim cartridge cache' })
+end, { desc = 'Reset sfcc.nvim cartridge and tsconfig caches' })

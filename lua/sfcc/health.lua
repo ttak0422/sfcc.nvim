@@ -6,12 +6,19 @@ function M.check()
   local info = require('sfcc').info()
 
   h.info('workspace root: ' .. info.workspace)
+  if info.tsconfig then
+    h.info('tsconfig: ' .. info.tsconfig.file)
+    h.info(('paths mappings: %d (checked before SFCC fallbacks)'):format(vim.tbl_count(info.tsconfig.paths or {})))
+    for _, err in ipairs(info.tsconfig.errors) do
+      h.warn(err)
+    end
+  end
   if info.modules then
     h.info('modules folder (bare requires resolve here): ' .. info.modules)
   end
 
   if not info.config then
-    h.warn('no dw.json found — resolution is unordered, multiple hits go through vim.ui.select')
+    h.warn('no dw.json found — cartridge resolution is unordered; tsconfig paths can still resolve')
     return
   end
   h.ok('dw.json: ' .. info.config)
