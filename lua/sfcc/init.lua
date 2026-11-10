@@ -1,5 +1,6 @@
 -- sfcc.nvim: resolve SFCC cartridge require paths like require('*/cartridge/...')
 local M = {}
+local tsconfig = require('sfcc.tsconfig')
 
 local cache = {} -- project root -> { roots = {dir,...}, ordered = bool, modules = dir? }
 
@@ -163,9 +164,15 @@ end
 ---@param spec string "*/..." | "~/..." | "./..." | "<cartridge_name>/..." | "<modules path>"
 ---@param file string buffer file path (used for "~", "." and to locate dw.json)
 ---@return string[] found
----@return boolean ordered true when dw.json cartridgesPath defined the order
+---@return boolean ordered true when tsconfig paths or dw.json defined priority
 function M.resolve(spec, file)
   spec = spec:gsub('^/', '') -- Prophet accepts one leading slash on any form
+  -- Explicit aliases are authoritative, including mappings for */ and dw/.
+  -- Missing mappings/targets leave all existing SFCC fallbacks intact.
+  local mapped = tsconfig.resolve(spec, file, existing_file)
+  if mapped then
+    return { mapped }, true
+  end
   local candidates, ordered = {}, false
   local rest = spec:match('^%*/(.+)')
   if rest then
@@ -325,13 +332,14 @@ function M.gf()
   end)
 end
 
---- Drop the cartridge-roots cache (e.g. after adding a cartridge).
+--- Drop cartridge discovery and tsconfig caches (e.g. after editing configs).
 function M.reset()
   cache = {}
+  tsconfig.reset()
 end
 
 --- Uncached discovery snapshot for :checkhealth sfcc.
----@return { workspace: string, config: string?, order: string[]?, roots: string[], modules: string? }
+---@return { workspace: string, config: string?, order: string[]?, roots: string[], modules: string?, tsconfig: table? }
 function M.info()
   local proj, config = project(vim.api.nvim_buf_get_name(0))
   local acc = walk(proj, { roots = {}, configs = {}, modules = {} })
@@ -347,6 +355,7 @@ function M.info()
     order = config and read_cartridges_path(config) or nil,
     roots = acc.roots,
     modules = acc.modules[1],
+    tsconfig = tsconfig.info(vim.api.nvim_buf_get_name(0), true),
   }
 end
 

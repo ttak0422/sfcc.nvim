@@ -24,6 +24,8 @@ the first match in declared order wins:
 - `dw/...` — server API module, no local file
 - cursor on `module.superModule` — the same file in the next cartridge down
   the order
+- `tsconfig.json` `compilerOptions.paths` — explicit aliases, checked before
+  the SFCC rules above (including mappings for `*/...` and `dw/...`)
 - anything else falls back to the builtin `gf`
 
 Omitted extensions are tried as `.js` / `.ds` / `.json` / `.ts` / `.d.ts`;
@@ -33,8 +35,8 @@ a directory resolves via `main.js` or `package.json` `"main"`.
 ## Setup
 
 No keymaps are created — map the resolver yourself. A global mapping is
-fine: outside a `dw.json` project it falls straight through to the
-builtin `gf`.
+fine: outside a `dw.json` project or a matching `tsconfig.json` path alias,
+it falls straight through to the builtin `gf`.
 
 ```lua
 -- lazy.nvim: the plugin is loaded on the first gf press
@@ -46,8 +48,16 @@ builtin `gf`.
 }
 ```
 
-Cartridge discovery is cached per working directory; clear it with
-`:SfccReset` (e.g. after adding a cartridge).
+Cartridge discovery and tsconfig settings are cached. Use `:SfccReset` after
+adding cartridges or editing configs (including inherited configs).
+
+## TypeScript path aliases
+
+Aliases use the nearest ancestor `tsconfig.json` of the current script
+(cwd for unnamed buffers), with JSONC and `extends` supported. Targets are
+relative to `baseUrl` or the declaring config; the first existing target wins.
+This is not full TypeScript module resolution: file probing follows the SFCC
+rules above, and `baseUrl` alone does not resolve bare imports.
 
 ## Tests
 

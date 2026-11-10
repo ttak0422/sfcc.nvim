@@ -215,4 +215,5 @@ vim.fn.writefile({ '{"hostname":"x"}' }, root .. '/dw.json')
 sfcc.reset()
 assert(#sfcc.super(root .. '/cartridges/app_custom/cartridge/scripts/util.js') == 0, 'superModule without order must not guess')
 
+dofile(plugin_root .. '/tests/tsconfig.lua')
 print('OK')
