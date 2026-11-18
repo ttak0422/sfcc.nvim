@@ -2,8 +2,6 @@
 local M = {}
 local tsconfig = require('sfcc.tsconfig')
 
-local cache = {} -- project root -> { roots = {dir,...}, ordered = bool, modules = dir? }
-
 -- quick project lookup without scanning: the workspace (cwd) when it has a
 -- dw.json, else the nearest ancestor of the file with one. The cwd wins so a
 -- submodule shipping its own dw.json cannot shadow the workspace config.
@@ -79,10 +77,6 @@ end
 
 -- cartridge roots = parents of directories literally named `cartridge`
 local function cartridge_roots(proj, config)
-  local hit = cache[proj]
-  if hit then
-    return hit.roots, hit.ordered, hit.modules
-  end
   local acc = walk(proj, { roots = {}, configs = {}, modules = {} })
   -- deterministic, and first-per-name below prefers the shallowest copy
   table.sort(acc.roots, shallow_first)
@@ -121,7 +115,6 @@ local function cartridge_roots(proj, config)
       roots, ordered = picked, true
     end
   end
-  cache[proj] = { roots = roots, ordered = ordered, modules = acc.modules[1] }
   return roots, ordered, acc.modules[1]
 end
 
@@ -196,8 +189,8 @@ function M.resolve(spec, file)
     if file == '' or not (file:match('%.[jt]s$') or file:match('%.ds$') or file:match('%.isml$')) then
       return {}, false
     end
-    local proj, config = project(file)
-    if not config and not cache[proj] then
+    local _, config = project(file)
+    if not config and not (file ~= '' and vim.fs.root(file, 'cartridge')) then
       return {}, false
     end
     -- no vim.fs.normalize here: it expands $VARS and collapses '..'
@@ -213,11 +206,11 @@ function M.resolve(spec, file)
     if not spec:match('^[%w_%-%./]+$') then
       return {}, false
     end
-    -- Gated on a quickly-findable dw.json (or an already-discovered project):
+    -- Gated on a quickly-findable dw.json or a source inside a cartridge:
     -- bare module paths ('lodash/fp') are common in any JS project and must
     -- not trigger a workspace scan.
     local proj, config = project(file)
-    if not config and not cache[proj] then
+    if not config and not (file ~= '' and vim.fs.root(file, 'cartridge')) then
       return {}, false
     end
     local all, modules
@@ -332,9 +325,8 @@ function M.gf()
   end)
 end
 
---- Drop cartridge discovery and tsconfig caches (e.g. after editing configs).
+--- Drop tsconfig caches (e.g. after editing TypeScript configs).
 function M.reset()
-  cache = {}
   tsconfig.reset()
 end
 

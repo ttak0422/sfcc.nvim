@@ -48,8 +48,12 @@ it falls straight through to the builtin `gf`.
 }
 ```
 
-Cartridge discovery and tsconfig settings are cached. Use `:SfccReset` after
-adding cartridges or editing configs (including inherited configs).
+Cartridge and `modules` discovery is not cached. Each SFCC lookup scans the
+workspace, so submodule updates, new cartridges, and changes to `dw.json`
+are reflected on the next lookup without waiting or `:SfccReset`.
+Discovery is synchronous; large workspaces may take longer to scan.
+TypeScript settings stay cached until `:SfccReset`; use it after editing
+tsconfig files (including inherited configs).
 
 ## TypeScript path aliases
 
