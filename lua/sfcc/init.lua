@@ -2,7 +2,8 @@
 local M = {}
 local tsconfig = require('sfcc.tsconfig')
 
-local cache = {} -- project root -> { roots = {dir,...}, ordered = bool, modules = dir? }
+local cache = {} -- project root -> { roots = {dir,...}, ordered = bool, modules = dir?, scanned_at = ns }
+local discovery_ttl = 5e9 -- nanoseconds; bound scans while allowing submodule updates to recover
 
 -- quick project lookup without scanning: the workspace (cwd) when it has a
 -- dw.json, else the nearest ancestor of the file with one. The cwd wins so a
@@ -80,7 +81,7 @@ end
 -- cartridge roots = parents of directories literally named `cartridge`
 local function cartridge_roots(proj, config)
   local hit = cache[proj]
-  if hit then
+  if hit and vim.uv.hrtime() - hit.scanned_at < discovery_ttl then
     return hit.roots, hit.ordered, hit.modules
   end
   local acc = walk(proj, { roots = {}, configs = {}, modules = {} })
@@ -121,7 +122,7 @@ local function cartridge_roots(proj, config)
       roots, ordered = picked, true
     end
   end
-  cache[proj] = { roots = roots, ordered = ordered, modules = acc.modules[1] }
+  cache[proj] = { roots = roots, ordered = ordered, modules = acc.modules[1], scanned_at = vim.uv.hrtime() }
   return roots, ordered, acc.modules[1]
 end
 
