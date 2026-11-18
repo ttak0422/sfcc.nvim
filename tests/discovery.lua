@@ -9,8 +9,7 @@ local function write(rel, text)
   return path
 end
 
-local hrtime, dir, now, scans = vim.uv.hrtime, vim.fs.dir, 0, 0
-vim.uv.hrtime = function() return now end
+local dir, scans = vim.fs.dir, 0, 0
 vim.fs.dir = function(path, ...)
   if path == root then
     scans = scans + 1
@@ -27,37 +26,32 @@ local file = write('src/current.js')
 assert(#sfcc.resolve('*/cartridge/scripts/util', file) == 0)
 assert(scans == 1, 'initial miss must scan once')
 write('sub/cartridges/app_base/cartridge/scripts/util.js')
--- Even distinct unresolved paths must reuse the same discovery snapshot.
-for i = 1, 20 do
-  now = i * 1e8
-  assert(#sfcc.resolve('*/cartridge/scripts/missing' .. i, file) == 0)
-  assert(#sfcc.resolve('missing_module' .. i, file) == 0)
-end
-now = 5e9 - 1
-assert(#sfcc.resolve('*/cartridge/scripts/util', file) == 0)
-assert(scans == 1, 'misses must not repeatedly scan during the five-second window')
-now = 5e9
 local found, ordered = sfcc.resolve('*/cartridge/scripts/util', file)
 assert(#found == 1 and ordered, 'cartridges added after an initial miss must be discovered without reset')
-assert(scans == 2, 'expired discovery must scan once')
+assert(scans == 2, 'every lookup must scan once')
 
 -- File misses are never cached: files added inside a known cartridge work immediately.
 assert(#sfcc.resolve('*/cartridge/scripts/late', file) == 0)
 local late = write('sub/cartridges/app_base/cartridge/scripts/late.js')
 found = sfcc.resolve('*/cartridge/scripts/late', file)
 assert(#found == 1 and found[1] == late, 'new files in a known cartridge must resolve immediately')
-assert(scans == 2, 'new files must not require another discovery scan')
+assert(scans == 4, 'misses and hits must each discover current roots')
 
--- A partial success must eventually include a newly available higher-priority cartridge.
+-- A partial success must immediately include a newly available higher-priority cartridge.
 local custom = write('sub/cartridges/app_custom/cartridge/scripts/util.js')
 write('sub/cartridges/unlisted/cartridge/scripts/util.js')
 write('node_modules/ignored/cartridge/scripts/util.js')
-now = 10e9
 found, ordered = sfcc.resolve('*/cartridge/scripts/util', file)
 assert(ordered and #found == 2 and found[1] == custom, 'refresh must preserve dw.json order and whitelist')
-assert(scans == 3, 'successful lookups must refresh expired discovery too')
+assert(scans == 5, 'successful lookups must refresh discovery too')
 found = sfcc.resolve('app_custom/cartridge/scripts/util', file)
 assert(#found == 1 and found[1] == custom, 'explicit cartridge references must use refreshed roots')
+
+-- dw.json changes also apply immediately, without reset or a TTL.
+write('dw.json', '{"cartridgesPath":"app_base:app_custom:app_next"}')
+found, ordered = sfcc.resolve('*/cartridge/scripts/util', file)
+assert(ordered and found[1]:find('app_base', 1, true), 'updated order must apply immediately')
+write('dw.json', '{"cartridgesPath":"app_custom:app_base:app_next"}')
 
 -- gf must open the preferred target after recovery, without prompting.
 vim.cmd.edit(file)
@@ -70,41 +64,37 @@ sfcc.gf()
 vim.ui.select = select
 assert(vim.api.nvim_buf_get_name(0) == custom, 'gf did not recover to the preferred cartridge')
 
--- Newly installed workspace modules recover through the same discovery cache.
+-- Newly installed workspace modules recover on the next uncached discovery.
 assert(#sfcc.resolve('server', file) == 0)
 local server = write('sub/modules/server/main.js')
-now = 15e9
 found = sfcc.resolve('server', file)
 assert(#found == 1 and found[1] == server, 'modules added after a miss must recover without reset')
-assert(scans == 4)
+assert(scans == 10)
 
 -- superModule also refreshes discovery when a lower-priority cartridge arrives.
 local base = root .. '/sub/cartridges/app_base/cartridge/scripts/util.js'
 assert(#sfcc.super(base) == 0)
 local next_file = write('sub/cartridges/app_next/cartridge/scripts/util.js')
-now = 20e9
 found = sfcc.super(base)
 assert(#found == 1 and found[1] == next_file, 'superModule must discover newly added cartridges')
-assert(scans == 5)
+assert(scans == 12)
 
--- Expired SFCC discovery must not interfere with aliases or fallback from a missing alias target.
+-- Uncached SFCC discovery must not interfere with aliases or fallback from a missing alias target.
 write('tsconfig.json', '{"compilerOptions":{"paths":{"mapped":["src/target"],"*/cartridge/scripts/late":["missing"]}}}')
 local target = write('src/target.js')
-now = 25e9
 found, ordered = sfcc.resolve('mapped', file)
-assert(#found == 1 and found[1] == target and ordered, 'tsconfig alias precedence must survive discovery expiry')
-assert(scans == 5, 'a matching alias must not trigger cartridge discovery')
+assert(#found == 1 and found[1] == target and ordered, 'tsconfig alias precedence must survive discovery scans')
+assert(scans == 12, 'a matching alias must not trigger cartridge discovery')
 found = sfcc.resolve('*/cartridge/scripts/late', file)
 assert(#found == 1 and found[1] == late, 'missing tsconfig targets must preserve refreshed SFCC fallback')
-assert(scans == 6)
+assert(scans == 13)
 
--- Reset still forces an immediate refresh inside the reuse window.
+-- Reset remains available for tsconfig; discovery has no state to clear.
 local newest = write('sub/cartridges/app_next/cartridge/scripts/newest.js')
 sfcc.reset()
 found = sfcc.resolve('*/cartridge/scripts/newest', file)
-assert(#found == 1 and found[1] == newest and scans == 7, 'reset must bypass the reuse window')
+assert(#found == 1 and found[1] == newest and scans == 14, 'lookup after reset must still discover current roots')
 
-vim.uv.hrtime = hrtime
 vim.fs.dir = dir
 sfcc.reset()
-print('cache: OK')
+print('uncached discovery: OK')

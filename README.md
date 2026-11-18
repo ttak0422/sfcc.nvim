@@ -48,9 +48,10 @@ it falls straight through to the builtin `gf`.
 }
 ```
 
-Cartridge and `modules` discovery is cached for five seconds, then refreshed
-on the next lookup. After initializing submodules or adding cartridges, retry
-`gf` after five seconds, or use `:SfccReset` for an immediate refresh.
+Cartridge and `modules` discovery is not cached. Each SFCC lookup scans the
+workspace, so submodule updates, new cartridges, and changes to `dw.json`
+are reflected on the next lookup without waiting or `:SfccReset`.
+Discovery is synchronous; large workspaces may take longer to scan.
 TypeScript settings stay cached until `:SfccReset`; use it after editing
 tsconfig files (including inherited configs).
 

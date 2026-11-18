@@ -157,10 +157,11 @@ sfcc.reset()
 found, ordered = sfcc.resolve('*/cartridge/scripts/x', proj2 .. '/cartridges/c_a/cartridge/scripts/x.js')
 assert(ordered and found[1]:find('c_b', 1, true), 'nested dw.json not honored')
 
--- once the project is discovered (cache warm), explicit cartridge references
--- work here too, even though dw.json is not an ancestor of the sources
+-- Explicit cartridge references work from a cartridge source even when
+-- dw.json is not an ancestor, without any discovery cache
+sfcc.reset()
 found = sfcc.resolve('c_b/cartridge/scripts/x', proj2 .. '/cartridges/c_a/cartridge/scripts/x.js')
-assert(#found == 1 and found[1]:find('c_b', 1, true), 'warm-cache explicit reference failed')
+assert(#found == 1 and found[1]:find('c_b', 1, true), 'cold explicit reference failed')
 
 -- a submodule shipping its own dw.json must not shadow the workspace config
 local proj3 = vim.fn.tempname()
@@ -183,8 +184,12 @@ local plain = vim.fn.tempname()
 vim.fn.mkdir(plain .. '/lodash/fp', 'p')
 vim.fn.chdir(plain)
 vim.fn.writefile({}, plain .. '/lodash/fp/get.js')
+local fs_dir = vim.fs.dir
+vim.fs.dir = function() error('non-SFCC imports must not scan the workspace') end
 assert(#sfcc.resolve('lodash/fp/get', plain .. '/index.js') == 0, 'bare module path must be ignored without dw.json')
 assert(#sfcc.resolve('./fp/get', plain .. '/lodash/index.js') == 0, 'relative spec must be ignored without dw.json')
+
+vim.fs.dir = fs_dir
 
 -- health snapshot (compare realpaths: on macOS tempname goes through /var -> /private/var)
 vim.fn.chdir(root)
@@ -215,6 +220,6 @@ vim.fn.writefile({ '{"hostname":"x"}' }, root .. '/dw.json')
 sfcc.reset()
 assert(#sfcc.super(root .. '/cartridges/app_custom/cartridge/scripts/util.js') == 0, 'superModule without order must not guess')
 
-dofile(plugin_root .. '/tests/cache.lua')
+dofile(plugin_root .. '/tests/discovery.lua')
 dofile(plugin_root .. '/tests/tsconfig.lua')
 print('OK')
